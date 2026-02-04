@@ -1,0 +1,710 @@
+---
+title: "Strukturelle Analyse des US-Luftverkehrsnetzes"
+subtitle: "Eine Untersuchung von Zentralitätsmaßen und Community-Strukturen | Repository: https://github.com/EduardoSteinMoessner/SNA"
+author: "Eduardo Stein Mössner"
+date: "`r format(Sys.Date(), '%d.%m.%Y')`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+    highlight: tango
+header-includes:
+   - \usepackage{float}
+   - \usepackage{longtable} 
+   - \usepackage{array}
+fontsize: 11pt
+geometry: margin=2.5cm
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,        # Code im PDF sichtbar (Anforderung)
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Einleitung & Forschungsfrage
+
+Der US-amerikanische Luftverkehr kann als Infrastrukturnetzwerk modelliert werden, in dem Flughäfen (Knoten) über direkte Flugverbindungen (Kanten) miteinander verbunden sind. Eine Social Network Analysis (SNA) ermöglicht es, **Hub-Funktionen**, **Vermittlerrollen** sowie **regionale Cluster** (Communities) im Gesamtnetzwerk zu identifizieren – und damit Rollen sichtbar zu machen, die sich nicht allein aus einfachen Attributen ableiten lassen.
+
+**Forschungsfrage:**  
+Welche Flughäfen übernehmen im US-amerikanischen Flugnetzwerk unterschiedliche strukturelle Rollen, und inwiefern unterscheiden sich klassische Hub-Funktionen von Vermittlerrollen im Kontext regionaler Netzwerkstrukturen?
+
+## Netzwerkbeschreibung (Knoten, Kanten, Attribute, Gerichtetheit)
+
+Datensatz: `USAirports` aus dem Package `igraphdata`.
+
+- **Netzwerktyp:** 1-Mode (eine Knotenart: Flughäfen)
+- **Knoten:** Flughäfen
+- **Kanten:** direkte Flugverbindungen (Start → Ziel)
+- **Gerichtet:** ja (Abflug → Ankunft)
+- **Gewichtet:** nein (im Datensatz)
+
+---
+
+# Analysestrategie
+
+Zur Beantwortung der Forschungsfrage werden (a) strukturelle Komponenten und (b) Positionsmaße (Zentralitäten) berechnet. Zusätzlich werden Netzwerkphänomene genutzt, um inhaltlich zu interpretieren (z. B. Hub-and-Spoke-Charakter, regionale Cluster, Tendenz zur Verbindung ähnlicher Knoten).
+
+## Strukturelle Komponenten
+
+- Größe (Anzahl Knoten)
+- Dichte (Density)
+- Komponenten (schwach/stark)
+- Durchmesser & durchschnittliche Pfadlänge (Average Path Length) – sinnvoll v. a. auf der Giant Component
+- Modularität (Community-Struktur)
+
+## Positionsmaße (Zentralität)
+
+- Degree (In-/Out-Degree) – „Erreichbarkeit“ vs. „Angebot“
+- Closeness – Effizienz der Erreichbarkeit
+- Betweenness – Vermittler-/Brückenfunktion
+- Eigenvector Centrality – Anbindung an „wichtige“ Flughäfen
+
+## Netzwerkphänomene
+
+- Reciprocity (Wechselseitigkeit) in gerichteten Netzwerken
+- Assortativität (z. B. verbinden sich Flughäfen mit ähnlichem Degree?)
+- Local Clustering / Transitivity (auf ungerichteter Projektion)
+- K-Core (robuste Kernstruktur des Netzwerkes)
+
+---
+
+# Analyse
+
+## Daten laden & erstes Verständnis
+
+```{r load-data}
+library(igraph)
+library(igraphdata)
+
+# Datensatz laden
+data("USairports", package = "igraphdata")
+
+# Graph-Objekt setzen
+g <- USairports
+
+g
+```
+
+### Formale Eigenschaften (Netzwerkdefinition)
+
+```{r network-properties}
+vcount(g)        # Anzahl Knoten
+ecount(g)        # Anzahl Kanten
+
+is.directed(g)
+is.weighted(g)
+
+# Kurzer Blick auf Knotennamen (wenn vorhanden)
+head(V(g)$name)
+```
+
+Das untersuchte Netzwerk umfasst 755 Knoten, die jeweils Flughäfen repräsentieren, sowie 23 473 Kanten, welche direkte Flugverbindungen zwischen diesen Flughäfen abbilden. Es handelt sich um ein gerichtetes, nicht gewichtetes 1-Mode-Netzwerk, da die Flugverbindungen eine klare Richtung (Abflug → Ankunft) aufweisen, jedoch keine Informationen zur Intensität der Verbindungen enthalten. Die Knoten sind durch die international gebräuchlichen Flughafen-Codes (IATA-Codes) benannt, die eine eindeutige Identifikation der einzelnen Flughäfen ermöglichen.
+
+## Strukturelle Komponenten
+
+### Größe
+
+```{r size}
+network_size <- vcount(g)
+network_size
+```
+
+### Dichte (Density)
+
+```{r density}
+network_density <- edge_density(g, loops = FALSE)
+network_density
+```
+
+Bei großskaligen Infrastrukturnetzwerken ist eine geringe Netzwerkdichte typisch, da nicht jeder Flughafen direkte Flugverbindungen zu allen anderen Flughäfen unterhalten kann. Mit einer Dichte von 0,04123 weist das untersuchte Netzwerk folglich eine sehr geringe Dichte auf, was auf eine stark selektive Struktur der direkten Flugverbindungen innerhalb des US-amerikanischen Luftverkehrssystems hindeutet.
+
+### Komponenten (schwach vs. stark)
+
+```{r components}
+comp_weak <- components(g, mode = "weak")
+comp_strong <- components(g, mode = "strong")
+
+comp_weak$no
+max(comp_weak$csize)
+
+comp_strong$no
+max(comp_strong$csize)
+```
+
+Für gerichtete Netzwerke ist die Unterscheidung zwischen schwach zusammenhängenden Komponenten (weakly connected components), bei denen die Kantenrichtung ignoriert wird, und stark zusammenhängenden Komponenten (strongly connected components), bei denen die Erreichbarkeit unter Berücksichtigung der Kantenrichtung betrachtet wird, von zentraler Bedeutung.
+
+Die Analyse zeigt, dass das untersuchte Netzwerk aus insgesamt sechs schwach zusammenhängenden Komponenten besteht, wobei die größte Komponente 745 der insgesamt 755 Flughäfen umfasst. Dies deutet darauf hin, dass nahezu alle Flughäfen zumindest indirekt miteinander verbunden sind, sofern die Richtung der Flugverbindungen außer Acht gelassen wird, und unterstreicht den insgesamt hohen Grad der strukturellen Vernetzung des US-amerikanischen Flugverkehrssystems.
+
+Demgegenüber lassen sich 30 stark zusammenhängende Komponenten identifizieren, wobei die größte stark zusammenhängende Komponente 723 Flughäfen umfasst. Dieser Befund verdeutlicht, dass zwar ein Großteil der Flughäfen wechselseitig erreichbar ist, jedoch nicht alle Flughäfen innerhalb des Netzwerks in beiden Richtungen miteinander verbunden sind.
+
+Auf den ersten Blick erscheint dieser Unterschied zwischen der hohen Wechselseitigkeit der Flugverbindungen und der Existenz mehrerer stark zusammenhängender Komponenten überraschend. Er stellt jedoch keinen Widerspruch dar, sondern ergibt sich aus der unterschiedlichen konzeptionellen Bedeutung beider Maße. Während die hohe Reciprocity darauf hinweist, dass direkte Flugverbindungen überwiegend in beide Richtungen existieren, erfordern stark zusammenhängende Komponenten eine vollständige gerichtete Erreichbarkeit zwischen allen Knoten eines Teilnetzwerks. Bereits einzelne asymmetrische oder einseitige Verbindungen können dazu führen, dass bestimmte Flughäfen aus der größten stark zusammenhängenden Komponente herausfallen.
+
+Insgesamt weisen diese Ergebnisse auf ein Flugnetzwerk hin, das lokal stark wechselseitig organisiert, jedoch global betrachtet punktuell in seiner gerichteten Erreichbarkeit eingeschränkt ist, ein Strukturmuster, das für großräumige Verkehrsnetze mit peripher gelegenen Standorten typisch ist.
+
+### Giant Component (für Pfadlängen, Diameter etc.)
+
+Für die Berechnung von Distanzmaßen (wie Durchmesser oder durchschnittliche Pfadlänge) ist ein vollständig verbundenes Netzwerk notwendig, da Pfade zu isolierten Knoten mathematisch als unendlich definiert wären. Die Analyse der Komponenten (siehe 3.2.3) zeigte, dass 745 der 755 Flughäfen (~98,7 %) in einer einzigen großen Komponente, der sogenannten Giant Component, verbunden sind. Um methodisch saubere Ergebnisse zu erhalten, wird das Netzwerk für die folgenden Schritte auf diese Giant Component reduziert. Die 10 isolierten Knoten werden aufgrund ihrer geringen strukturellen Bedeutung für das Gesamtsystem ausgeschlossen.
+
+```{r giant-component}
+# Identifikation der größten Komponente (Giant Component)
+giant_id <- which.max(comp_weak$csize)
+giant_vertices <- which(comp_weak$membership == giant_id)
+
+# Erzeugen des Teilgraphen
+g_gc <- induced_subgraph(g, giant_vertices)
+
+# Prüfen der neuen Größe
+c(Knoten_GC = vcount(g_gc), Kanten_GC = ecount(g_gc))
+```
+
+### Durchmesser & Average Path Length (Giant Component)
+
+Auf Basis der Giant Component werden nun Maße berechnet, die Auskunft über die Effizienz und Ausdehnung des Netzwerks geben
+
+```{r diameter-apl}
+diameter_gc <- diameter(g_gc, directed = TRUE)
+apl_gc <- average.path.length(g_gc, directed = TRUE)
+
+diameter_gc # Durchmesser
+apl_gc      # Durchschnittliche Pfadlänge
+```
+
+Average Path Length (3,53): Im Durchschnitt sind lediglich ca. 3,5 Flüge notwendig, um von einem beliebigen Flughafen zu einem anderen zu gelangen. Dieser niedrige Wert deutet auf ein Small-World-Netzwerk hin, in dem Hubs als Abkürzungen fungieren und für eine hohe Transporthomedie sorgen.
+
+Diameter (9): Die maximal notwendige Anzahl an Flügen zwischen den zwei am ungünstigsten gelegenen Flughäfen beträgt 9. Dies repräsentiert die Verbindung zwischen extrem peripheren Standorten.
+
+### Modularität / Community-Struktur
+
+Um zu untersuchen, ob das Netzwerk in untergeordnete Gruppen (Cluster) zerfällt, wird eine Community-Detection durchgeführt. Hierfür wird der Louvain-Algorithmus verwendet, ein Standardverfahren zur Maximierung der Modularität. Da der Algorithmus primär für ungerichtete Graphen konzipiert ist, wird die Kantenrichtung für diesen Schritt ignoriert (die bloße Verbindung zählt).
+
+```{r communities}
+# Umwandlung in ungerichteten Graphen
+g_und <- as.undirected(g_gc, mode = "collapse")
+
+# WICHTIG: Seed setzen für Reproduzierbarkeit
+set.seed(123) 
+
+# Berechnung der Cluster (Louvain)
+comm <- cluster_louvain(g_und)
+mod_val <- modularity(comm)
+
+# Ausgabe der Anzahl der Gruppen und des Modularitätswerts
+length(comm) # Anzahl der Communities
+mod_val      # Modularitäts-Score
+# Anzeigen der Flughäfen in der ersten Community
+print(groups(comm)[[1]])
+```
+
+Der Algorithmus identifiziert in diesem Durchlauf 16 Communities. Der Modularitätswert von 0,442 weist weiterhin auf eine signifikante Cluster-Struktur hin. Nach Newman (2004) deuten Modularitätswerte, die 0,3 überschreiten, in der Regel auf eine signifikante Community-Struktur hin.
+
+Inhaltlich lassen sich diese Communities oft geografisch zuordnen, wobei der Algorithmus hier auch funktionale Verbindungen berücksichtigt. Ein Blick auf die erste Gruppe (comm[[1]]) zeigt eine sehr große Community, die Flughäfen wie BOS (Boston), JFK (New York) und MIA (Miami), aber auch zentrale Hubs wie ATL (Atlanta) und ORD (Chicago) umfasst. Dies repräsentiert ein Großcluster der östlichen USA, das aufgrund der extremen Dichte an Flügen zwischen diesen Metropolen zu einer einzigen Gruppe zusammengefasst wurde.
+
+## Visualisierungen
+
+### Visualisierung des Gesamtnetzwerks
+
+Zunächst wurde versucht, das vollständige Netzwerk mit allen 755 Knoten und über 23.000 Kanten statisch abzubilden.
+
+```{r vis_total, fig.cap="Versuch der Gesamtdarstellung", fig.pos="H"}
+set.seed(123)
+# Plotten von g (das Gesamtnetzwerk)
+plot(g,
+     layout = layout_with_fr(g), # Kraftbasiertes Layout
+     vertex.size = 2,            # Sehr kleine Knoten
+     vertex.label = NA,          # Keine Labels (wären unlesbar)
+     edge.arrow.size = 0.1,      # Minimale Pfeile
+     edge.color = rgb(0.5, 0.5, 0.5, 0.1), # Hohe Transparenz für Kanten
+     main = "Gesamtnetzwerk USAirports (755 Knoten)"
+)
+```
+
+### Interpretation & Methodische Entscheidung:
+
+Wie die Abbildung 1 zeigt, führt die hohe Dichte an Knoten und Kanten im Zentrum des Netzwerks zu einem sogenannten „Hairball“-Effekt. Einzelne Pfade oder Strukturen sind visuell kaum zu differenzieren. Die statische Abbildung stößt hier an ihre Grenzen, da die Überlagerungen eine detaillierte Analyse von Nachbarschaften unmöglich machen.
+
+Aufgrund dieser Limitation wurde entschieden, für die explorative Analyse eine interaktive Lösung zu entwickeln (siehe nächster Abschnitt) und für den statischen Bericht auf die reduzierte Giant Component mit Community-Färbung zurückzugreifen.
+
+### Interaktive Exploration (Lösung der Sichtbarkeitsprobleme)
+
+Um das Problem der Überlagerung zu lösen und ein "Reinzoomen" in lokale Cluster zu ermöglichen, wurde eine interaktive R-Shiny-Applikation (`app.R`) entwickelt. Diese ermöglicht:
+1.  Die dynamische Filterung von Knoten nach Degree (Ausblenden unwichtigerer Flughäfen).
+2.  Das gezielte Hervorheben von Nachbarschaften (Ego-Netzwerke) einzelner Hubs.
+3.  Die interaktive Erkundung der im Folgenden beschriebenen Community-Strukturen.
+
+*Hinweis: Der Quellcode der `app.R` befindet sich im Anhang dieser Arbeit.*
+
+### Statische Analyse: Communities auf der Giant Component
+
+Um für diesen schriftlichen Bericht dennoch strukturelle Muster sichtbar zu machen, wird die Visualisierung auf die *Giant Component* (das größte zusammenhängende Teilnetzwerk) reduziert und um die Dimension der *Modularität* erweitert. Knoten werden entsprechend ihrer Zugehörigkeit zu den berechneten Clustern (Louvain-Algorithmus) eingefärbt.
+
+```{r plot-network, fig.align='center', out.width='100%', fig.width=10, fig.height=8}
+set.seed(123)
+
+# Ungerichtete Version für Community Detection
+g_und <- as.undirected(g_gc, mode = "collapse")
+
+# Louvain Communities
+comm <- cluster_louvain(g_und)
+
+# Farben pro Community
+V(g_und)$color <- membership(comm)
+
+# Node-Größe nach Degree (sanft skaliert)
+V(g_und)$size <- log(degree(g_und) + 1) * 2
+
+# Transparente Kanten
+E(g_und)$color <- rgb(0.7, 0.7, 0.7, alpha = 0.3)
+
+plot(
+  g_und,
+  layout = layout_with_fr(g_und),
+  vertex.label = NA,
+  main = "US-Airports-Netzwerk – Giant Component mit Community-Struktur"
+)
+```
+
+Durch die Einfärbung (siehe Abbildung oben) werden regionale Cluster sichtbar. Dies bestätigt die Annahme einer hohen Modularität, bei der sich Flughäfen stärker innerhalb ihrer Region vernetzen als global.
+
+## Positionsmaße (Zentralitäten)
+
+### Degree (In-/Out-Degree) – Hub-Funktion
+
+```{r degree}
+# Berechnung der gerichteten Degrees auf dem Gesamtnetzwerk (g)
+in_deg <- degree(g, mode = "in")
+out_deg <- degree(g, mode = "out")
+
+# Statistische Verteilung prüfen
+summary(in_deg)
+summary(out_deg)
+
+# Identifikation der Top-10 Hubs
+top_in <- sort(in_deg, decreasing = TRUE)[1:10]
+top_out <- sort(out_deg, decreasing = TRUE)[1:10]
+
+# Ausgabe der Top-Listen
+top_in
+top_out
+```
+
+Verteilung (Hub-and-Spoke Indiz): Die statistische Auswertung zeigt eine extreme Rechtsschiefe der Verteilung. Während der Median bei nur ca. 6 bis 7 Verbindungen liegt, beträgt der Mittelwert ca. 31. Das Maximum liegt bei über 800 Verbindungen. Dies ist charakteristisch für skalenfreie Netzwerke: Die überwiegende Mehrheit der Flughäfen ist klein (Peripherie), während wenige riesige Hubs ("Super-Connectors") das Netzwerk dominieren.
+
+Spitzenreiter (Hubs): Die Ranglisten für In- und Out-Degree sind nahezu identisch. Atlanta (ATL) und Chicago (ORD) führen beide Listen mit großem Abstand an. Dies bestätigt ihre Rolle als die zentralen nationalen Drehkreuze in den USA. Dass In- und Out-Degree bei den Top-Flughäfen fast gleich hoch sind, zeigt, dass diese Knoten eine symmetrische Rolle spielen: Sie fungieren als reine Verteiler (Flugzeuge, die ankommen, fliegen auch wieder ab), und sind keine "Senken" (wo nur Flüge enden).
+
+### Betweenness Centrality – Die Vermittlerrolle
+Die Betweenness Centrality misst, wie oft ein Knoten auf dem kürzesten Pfad zwischen zwei anderen Knoten liegt. Knoten mit hoher Betweenness fungieren als Brücken oder "Gatekeeper". Sie kontrollieren den Informations- oder Verkehrsfluss zwischen verschiedenen Clustern (vgl. Badermann 2025: Strukturelle Komponenten von Netzwerken).
+
+Methodische Entscheidung: Zwar ist die Berechnung auf dem Gesamtnetzwerk (g) technisch möglich (siehe Code-Kommentar), jedoch beziehen wir uns für die Interpretation auf die Giant Component (g_gc). Dies gewährleistet Konsistenz mit den nachfolgenden Maßen (wie Closeness), die zwingend ein verbundenes Netzwerk erfordern, und fokussiert die Analyse auf das relevante Hauptverkehrsnetz.
+
+```{r betweenness}
+# Berechnung auf der Giant Component (methodisch konsistent)
+betw_gc <- betweenness(g_gc, directed = TRUE, normalized = TRUE)
+
+# Statistische Übersicht
+summary(betw_gc)
+
+# Die Top-10 "Brückenwächter"
+sort(betw_gc, decreasing = TRUE)[1:10]
+```
+
+Die Ergebnisse liefern eine der wichtigsten Erkenntnisse dieser Analyse, da sie sich signifikant vom Degree (3.4.1) unterscheiden:
+
+Der "Anchorage-Effekt": Nicht die großen Hubs wie Atlanta oder Chicago führen die Liste an, sondern Anchorage (ANC) mit einem extrem hohen Wert von 0,36. Das bedeutet, dass über 36 % aller kürzesten Wege im Netzwerk durch diesen einen Flughafen führen. Grund: ANC fungiert als unverzichtbares Nadelöhr ("Bottleneck"). Er verbindet die vielen kleinen Flughäfen Alaskas (die sonst isoliert wären) mit dem US-Festland und dient oft als Tankstopp für Trans-Pazifik-Routen.
+
+Hubs vs. Brücken: Klassische Hubs wie Atlanta (ATL) rutschen hier auf Platz 8 ab. Sie haben zwar viele Verbindungen, liegen aber oft innerhalb dichter Cluster, die man auch "umfliegen" könnte. ANC hingegen ist strukturell kritischer: Fällt ANC aus, werden Teile des Netzwerks unerreichbar (Cutpoint-Funktion).
+
+#### Closeness Centrality – Effizienz der Erreichbarkeit
+
+Closeness misst die durchschnittliche Nähe eines Knotens zu allen anderen. Ein hoher Wert bedeutet, dass ein Flughafen mit wenigen Umstiegen von überall erreichbar ist.
+**Wichtig:** Auch dieses Maß ist nur auf verbundenen Netzwerken definiert, weshalb wir zwingend die *Giant Component* nutzen.
+
+```{r closeness_calc}
+# Berechnung der Closeness (auf Giant Component)
+# mode="all" betrachtet hin- und wegführende Wege (globaler Zugang)
+close_gc <- closeness(g_gc, mode = "all", normalized = TRUE)
+
+# Top 10 Closeness
+sort(close_gc, decreasing = TRUE)[1:10]
+```
+
+Hier dominieren wieder die großen Hubs (DEN, ORD, ATL). Das ist logisch: Wer viele Direktverbindungen hat (hoher Degree), ist im Durchschnitt auch schneller überall. Interessant ist hier Denver (DEN) auf Platz 1: Durch seine geografisch zentrale Lage in den USA ist es der effizienteste Verteiler, um "in die Mitte" aller Wege zu kommen.
+
+### Eigenvector Centrality – Qualität der Verbindungen
+
+```{r eigenvector}
+# Berechnung auf der Giant Component (konsistent zu 3.5)
+# scale = TRUE normiert den höchsten Wert auf 1.0
+eig_obj <- eigen_centrality(g_gc, directed = TRUE, scale = TRUE)
+eig_gc <- eig_obj$vector
+
+summary(eig_gc)
+
+# Die Top-10 nach "Einfluss"
+sort(eig_gc, decreasing = TRUE)[1:10]
+```
+
+Die Werte sind relativ zum stärksten Knoten (Wert 1.0) skaliert.
+
+Atlanta (ATL) und Chicago (ORD) führen auch hier mit Werten nahe 1.0. Das bedeutet: Sie sind nicht nur mit vielen Flughäfen verbunden, sondern vor allem auch miteinander und mit anderen großen Drehkreuzen (Rich-Club-Phänomen).
+
+Der Unterschied zu Betweenness: Anchorage (ANC), das bei der Betweenness (Brückenfunktion) führend war, taucht hier in den Top-10 gar nicht auf.
+
+Grund: Anchorage ist zwar wichtig für die Erreichbarkeit (Brücke), aber seine Nachbarn sind oft kleine, unwichtige Flughäfen in Alaska. Deshalb ist sein "Einfluss-Score" (Eigenvector) geringer als der der großen Festland-Hubs.
+
+## Zentralitäts-Vergleich (Zusammenfassung)
+
+Um die unterschiedlichen Rollen der Flughäfen systematisch zu vergleichen, führen wir alle berechneten Maße in einem Dataframe zusammen. Dabei greifen wir auf die in den vorangegangenen Kapiteln berechneten Werte der *Giant Component* zurück.
+
+```{r centrality_comparison_final}
+# 1. Degree für Giant Component berechnen 
+# (Notwendig, da wir in 3.4.1 das Gesamtnetzwerk genutzt hatten)
+deg_gc_in  <- degree(g_gc, mode = "in")
+deg_gc_out <- degree(g_gc, mode = "out")
+
+# 2. Alles in einen sauberen Dataframe packen
+# Wir nutzen die existierenden Variablen aus Kapitel 3.4.x (betw_gc, close_gc, eig_gc)
+df_centrality <- data.frame(
+  Airport = V(g_gc)$name,
+  InDegree = deg_gc_in,
+  OutDegree = deg_gc_out,
+  Betweenness = round(betw_gc, 4),
+  Closeness = round(close_gc, 4),
+  Eigenvector = round(eig_gc, 4)
+)
+
+# 3. Tabelle nach Betweenness sortieren (um die "Brücken" zu sehen)
+df_sorted <- df_centrality[order(df_centrality$Betweenness, decreasing = TRUE), ]
+
+# 4. Ausgabe der Top 15 als saubere Tabelle
+knitr::kable(head(df_sorted, 15), 
+             caption = "Top 15 Flughäfen: Vergleich der Zentralitätsmaße (Giant Component)",
+             row.names = FALSE)
+```
+
+Die Tabelle verdeutlicht die Diskrepanz zwischen Quantität (Degree) und strategischer Lage (Betweenness):
+
+Anchorage (ANC) ist der unangefochtene Spitzenreiter bei der Betweenness (0.36), obwohl es beim In-Degree mit 133 Verbindungen weit hinter den großen Hubs liegt (vgl. ATL mit >800). Dies unterstreicht die Rolle als unverzichtbare Brücke.
+
+Seattle (SEA) zeigt eine starke Mischform: Hoher Degree und sehr hohe Betweenness.
+
+Atlanta (ATL) zeigt das gegenteilige Bild: Es hat den absolut höchsten Degree (über 800) und auch den höchsten Eigenvector-Wert (1.0), liegt aber bei der Betweenness nur auf Platz 8. Das bedeutet: ATL ist extrem prominent und gut vernetzt, aber das Netzwerk ist so dicht, dass man ATL zur Not auch "umfliegen" könnte (geringere Brückenfunktion als ANC).
+
+## Netzwerkphänomene
+
+Zum Abschluss der Strukturanalyse betrachten wir globale Phänomene, die Aussagen über die Stabilität, Gegenseitigkeit und Clusterbildung des Netzwerks treffen.
+
+### Reciprocity (Wechselseitigkeit)
+
+Die Reziprozität misst den Anteil der gegenseitigen Verbindungen ($A \leftrightarrow B$) im Verhältnis zu allen Verbindungen.
+
+```{r reciprocity}
+# Berechnung auf der Giant Component
+rec_val <- reciprocity(g_gc)
+rec_val
+```
+
+Der Wert von ```r round(rec_val, 2)``` ist extrem hoch. Das bedeutet: In ca. ```r round(rec_val * 100, 0)``` % der Fälle, in denen ein Flug von A nach B existiert, gibt es auch einen Rückflug von B nach A. Dies ist charakteristisch für Passagier-Luftverkehrsnetze (logistische Notwendigkeit der Rückführung von Flugzeugen) und deutet auf eine sehr stabile, bidirektionale Verkehrsstruktur hin.
+
+### Assortativität (Degree-Assortativity)
+
+Dieses Maß gibt an, ob sich Knoten bevorzugt mit ähnlichen Knoten verbinden (Homophilie).
+
+Positiv: Hubs verbinden sich mit Hubs.
+
+Negativ: Hubs verbinden sich mit kleinen Knoten.
+
+```{r assortativity}
+assort_val <- assortativity_degree(g_gc, directed = TRUE)
+assort_val
+```
+
+Der leicht negative Wert ```(r round(assort_val, 3))``` deutet auf eine disassortative Struktur hin. Das bestätigt das Hub-and-Spoke-Modell: Große Hubs (hoher Degree) tendieren dazu, sich mit vielen kleinen Regionalflughäfen (niedriger Degree) zu verbinden, anstatt nur untereinander zu vernetzen.
+
+### Clustering Coefficient (Transitivität)
+
+Der globale Clustering-Koeffizient (Transitivität) misst die Wahrscheinlichkeit, dass zwei Nachbarn eines Knotens auch untereinander verbunden sind ("Are my friends also friends?").
+
+```{r transitivity}
+# Wir benötigen eine ungerichtete Version der Giant Component für Transitivity & K-Core
+g_gc_und <- as.undirected(g_gc, mode = "collapse")
+
+trans_val <- transitivity(g_gc_und, type = "global")
+trans_val
+```
+
+Der Wert von ```r round(trans_val, 3)``` (ca. ```r round(trans_val*100, 1)``` %) zeigt eine moderate Clusterbildung. Es bilden sich also häufig Dreiecksbeziehungen (Triaden). Im Kontext von Flughäfen bedeutet dies oft, dass Passagiere nicht immer über den zentralen Hub fliegen müssen, sondern dass es zwischen den Zubringern oder sekundären Hubs auch Direktverbindungen gibt, was die Robustheit des Netzes erhöht.
+
+### K-Core Zerlegung (Robuster Kern)
+
+Die K-Core-Analyse identifiziert den stabilsten Kern des Netzwerks, indem schrittweise Knoten entfernt werden, die weniger als $k$ Verbindungen haben.
+
+```{r kcore}
+core_vals <- coreness(g_gc_und)
+summary(core_vals)
+
+# Identifikation des innersten Kerns (Maximaler k-Wert)
+max_k <- max(core_vals)
+deepest_core <- names(sort(core_vals, decreasing = TRUE)[1:15])
+
+# Ausgabe des maximalen K-Werts und der Top-Knoten
+max_k
+deepest_core
+```
+
+Der maximale Core-Wert liegt bei ```r max_k```. Das bedeutet, es existiert ein "Elite-Club" von Flughäfen, in dem jeder mit mindestens ```r max_k``` anderen Mitgliedern dieses Clubs verbunden ist. Dass hier Flughäfen wie ```r paste(head(deepest_core, 4), collapse=", ")``` auftauchen, zeigt, dass diese Knoten das Backbone (Rückgrat) der US-Luftfahrt bilden. Selbst wenn periphere Knoten ausfallen, bleibt dieser Kern aufgrund seiner extremen Dichte stabil und funktionsfähig.
+
+---
+
+# Fazit
+
+## Beantwortung der Forschungsfrage
+Ziel dieser Projektarbeit war es, die strukturelle Beschaffenheit des US-Flugnetzes zu analysieren und die unterschiedlichen Rollen der Flughäfen zu differenzieren. Basierend auf den durchgeführten Analyseschritten lassen sich die Forschungsfragen wie folgt beantworten:
+
+1.  **Hubs vs. Brücken:** Die Analyse offenbarte eine klare funktionale Trennung.
+    * Als **zentrale Hubs** (Prominenz) wurden **Atlanta (ATL)** und **Chicago (ORD)** identifiziert. Sie dominieren das Netzwerk hinsichtlich der reinen Anzahl an Verbindungen (*Degree*) und der Einbettung in den Kern (*Eigenvector Centrality*).
+    * Eine abweichende, aber strategisch kritische Rolle nimmt **Anchorage (ANC)** ein. Trotz einer vergleichsweise geringen Anzahl an Verbindungen weist dieser Flughafen die höchste **Betweenness Centrality** auf. Er fungiert als unverzichtbare Brücke ("Gatekeeper"), die das US-Festland mit den geografisch isolierten Clustern in Alaska verbindet.
+
+2.  **Netzwerkstruktur:** Das Netzwerk zeigt mit einem Modularitätswert von ca. **0,44** eine signifikante Unterteilung in **regionale Communities** (z. B. Ostküste, Westküste, Alaska). Gleichzeitig deutet die geringe durchschnittliche Pfadlänge (~3,5) auf einen **Small-World-Effekt** hin: Trotz der Größe des Landes ist jeder Flughafen mit wenigen Umstiegen erreichbar.
+
+3.  **Topologie:** Die leicht negative Assortativität (**-0,05**) bestätigt die Prävalenz einer **Hub-and-Spoke-Architektur**. Große Verteilerflughäfen verbinden sich primär mit vielen kleinen Regionalflughäfen und nicht ausschließlich untereinander.
+
+## Limitationen
+Die Ergebnisse dieser Arbeit unterliegen folgenden methodischen Einschränkungen:
+* **Fehlende Kantengewichtung:** Das Netzwerk wurde ungerichtet und ungewichtet analysiert. Ein Flug, der einmal pro Woche stattfindet, wurde mathematisch gleichgesetzt mit einer stündlichen Shuttle-Verbindung. Dies unterschätzt die ökonomische Dominanz der großen Hubs (z. B. ATL) gegenüber reinen Versorgungsbrücken (z. B. ANC).
+* **Datenaktualität:** Der verwendete Datensatz (`USairports` aus dem Paket `igraphdata`) bildet den Stand von 2010 ab. Aktuelle Entwicklungen im Flugverkehr sind nicht berücksichtigt.
+* **Reduktion auf die Giant Component:** Um valide Distanzmaße (Closeness, Diameter) zu berechnen, mussten isolierte Knoten (ca. 1,3 % des Netzwerks) ausgeschlossen werden. Für eine Totalanalyse der Versorgungssicherheit in Randgebieten wäre dieser Ausschluss kritisch zu hinterfragen.
+
+## Ausblick
+Für weiterführende Analysen empfehlen sich folgende Schritte:
+1.  **Integration von Gewichten:** Eine Analyse basierend auf Passagierzahlen oder Flugfrequenzen würde ein realistischeres Bild der "Lastenverteilung" im Netzwerk zeichnen.
+2.  **Robustheitsanalyse:** Es sollte simuliert werden, wie das Netzwerk auf den gezielten Ausfall von Knoten reagiert ("Targeted Attack"). Hierbei wäre zu prüfen, ob das Entfernen von High-Betweenness-Knoten (wie ANC) das Netzwerk schneller in unverbundene Teile zerfallen lässt als das Entfernen von High-Degree-Knoten (wie ATL).
+3.  **Zeitreihenanalyse:** Ein Vergleich der Netzwerktopologie über mehrere Jahre könnte Aufschluss darüber geben, ob sich das Hub-and-Spoke-System durch die Zunahme von Punkt-zu-Punkt-Verbindungen (durch moderne Flugzeugtypen) langsam auflöst.
+
+\newpage
+
+# Hilfsmittelverzeichnis
+
+Bei der Erstellung der Arbeit wurden die folgenden auf Künstlicher Intelligenz (KI) basierende Systeme in der beschriebenen Weise benutzt:
+
+| Arbeitsschritt | KI-System(e) | Beschreibung der Verwendungsweise | Betroffene Teile |
+| :--- | :--- | :--- | :--- |
+| **Konzeption und Gliederung** | Gemini | Unterstützung bei der Erstellung der Kapitelstruktur und Schärfung der Forschungsfrage. | Gesamte Arbeit |
+| **Programmierung und Debugging** | Gemini | Unterstützung bei der Erstellung und Fehlerbehebung des R-Codes (Paket igraph), Syntax-Korrekturen und Visualisierung (ggplot2/visNetwork). | Gesamte Arbeit |
+| **Textoptimierung** | Gemini | Prüfung auf Grammatik, Rechtschreibung sowie stilistische Überarbeitung wissenschaftlicher Formulierungen. | Gesamte Arbeit |
+| **Literatur-Zusammenfassung** | Gemini / NotebookLM | Unterstützung beim Verständnis komplexer SNA-Konzepte aus den Vorlesungsfolien. | Gesamte Arbeit |
+
+\newpage
+# Anhang
+
+## Code der interaktiven Shiny App (app.R)
+
+Dieser Code wurde erstellt, um die in Kapitel 3.3 beschriebenen Probleme bei der statischen Visualisierung des Gesamtnetzwerks zu lösen.
+
+```{r app-code, eval=FALSE, echo=TRUE}
+library(shiny)
+library(igraph)
+library(igraphdata)
+library(visNetwork)
+
+# --- 1. Daten laden und vorbereiten ---
+data("USairports", package = "igraphdata")
+g_full <- USairports
+
+# --- UI Definition ---
+ui <- fluidPage(
+  title = "USAirports Netzwerk-Analyse",
+  
+  tags$head(
+    tags$style(HTML("
+      html, body { 
+        height: 100%; 
+        overflow: hidden; 
+        margin: 0; 
+        padding: 0;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      }
+      .header-panel {
+        background-color: #333;
+        color: white;
+        padding: 10px 15px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .sidebar {
+        background-color: #f8f9fa;
+        height: calc(100vh - 50px);
+        overflow-y: auto;
+        padding: 15px;
+        border-right: 1px solid #ddd;
+      }
+      .main-content {
+        height: calc(100vh - 50px);
+        padding: 0 !important;
+        position: relative;
+      }
+      .info-box {
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        padding: 10px;
+        z-index: 100;
+      }
+    ")),
+    tags$script(HTML("
+      $(document).ready(function() {
+        $('#toggleSidebar').click(function() {
+          $('.sidebar-column').toggle();
+          $('.main-column').toggleClass('col-sm-8 col-sm-9 col-sm-12');
+          window.dispatchEvent(new Event('resize'));
+        });
+      });
+    "))
+  ),
+  
+  # --- Header ---
+  div(class = "header-panel",
+      span(style = "font-size: 18px; font-weight: bold;", "✈️ USAirports Explorer"),
+      actionButton("toggleSidebar", "☰ Filter", class = "btn-sm btn-light")
+  ),
+  
+  # --- Layout ---
+  fluidRow(
+    # Sidebar
+    column(3, class = "sidebar sidebar-column",
+           h4("Einstellungen"),
+           hr(),
+           sliderInput("topN", "Anzahl Airports (Top-N nach Degree):",
+                       min = 50, max = 755, value = 755, step = 25),
+           
+           checkboxInput("useGC", "Nur Giant Component", value = TRUE),
+           checkboxInput("colorComm", "Communities einfärben", value = TRUE),
+           checkboxInput("showEdges", "Kanten anzeigen", value = TRUE),
+           
+           hr(),
+           div(class = "alert alert-info", role = "alert",
+               tags$small("Performance-Tipp: Das Netzwerk reagiert jetzt nur noch auf Klick, um das Zoomen flüssig zu halten.")
+           )
+    ),
+    
+    # Main Area
+    column(9, class = "main-content main-column",
+           visNetworkOutput("net", width = "100%", height = "100%"),
+           
+           absolutePanel(
+             id = "details-panel", class = "info-box",
+             top = 20, right = 20, width = 250, fixed = FALSE,
+             draggable = TRUE,
+             h5(icon("info-circle"), "Details"),
+             verbatimTextOutput("node_info", placeholder = TRUE)
+           )
+    )
+  )
+)
+
+# --- Server ---
+server <- function(input, output, session) {
+  
+  g_reactive <- reactive({
+    g <- g_full
+    if (isTRUE(input$useGC)) {
+      comp <- components(g, mode = "weak")
+      giant_id <- which.max(comp$csize)
+      g <- induced_subgraph(g, vids = which(comp$membership == giant_id))
+    }
+    if (input$topN < vcount(g)) {
+      deg <- degree(g, mode = "all")
+      top_nodes <- names(sort(deg, decreasing = TRUE))[1:input$topN]
+      g <- induced_subgraph(g, vids = top_nodes)
+    }
+    g
+  })
+  
+  output$net <- renderVisNetwork({
+    g <- g_reactive()
+    ids <- V(g)$name
+    
+    city_map <- if ("City" %in% vertex_attr_names(g)) {
+      setNames(as.character(V(g)$City), ids)
+    } else {
+      setNames(rep("n/a", length(ids)), ids)
+    }
+    
+    deg_all <- degree(g, mode = "all")
+    
+    nodes <- data.frame(
+      id = ids,
+      label = ids, 
+      value = deg_all[ids],
+      group = "Airport",
+      stringsAsFactors = FALSE
+    )
+    
+    if (isTRUE(input$colorComm)) {
+      g_und <- as.undirected(g, mode = "collapse")
+      comm <- cluster_louvain(g_und)
+      nodes$group <- as.character(membership(comm)[nodes$id])
+    }
+    
+    if (isTRUE(input$showEdges)) {
+      edges <- as.data.frame(get.edgelist(g))
+      colnames(edges) <- c("from", "to")
+      edges$color <- "rgba(100,100,100,0.2)"
+    } else {
+      edges <- data.frame(from = character(0), to = character(0))
+    }
+    
+    visNetwork(nodes, edges) %>%
+      visIgraphLayout(layout = "layout_with_fr") %>%
+      visOptions(
+        highlightNearest = list(enabled = TRUE, degree = 1, hover = FALSE),
+        nodesIdSelection = TRUE
+      ) %>%
+      visInteraction(
+        navigationButtons = TRUE,
+        hover = FALSE 
+      ) %>%
+      visEvents(selectNode = "function(nodes) {
+        Shiny.onInputChange('net_selected', nodes.nodes);
+      ;}")
+  })
+  
+  output$node_info <- renderText({
+    sel <- input$net_selected
+    if (is.null(sel) || length(sel) == 0) {
+      return("Bitte Knoten anklicken.")
+    }
+    
+    node_id <- sel[1]
+    g <- g_reactive()
+    
+    if (!node_id %in% V(g)$name) return("Knoten nicht im Filter.")
+    
+    city <- if ("City" %in% vertex_attr_names(g)) V(g)[node_id]$City else "n/a"
+    d_in <- degree(g, mode = "in")[node_id]
+    d_out <- degree(g, mode = "out")[node_id]
+    betw <- round(betweenness(g)[node_id], 1)
+    
+    paste0(
+      "Airport: ", node_id, "\n",
+      "City:    ", city, "\n",
+      "---------------\n",
+      "In-Degree:   ", d_in, "\n",
+      "Out-Degree:  ", d_out, "\n",
+      "Betweenness: ", betw
+    )
+  })
+}
+
+shinyApp(ui, server)
+```
